@@ -2,6 +2,7 @@ package com.autoding.punch
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -66,13 +67,28 @@ class DingTalkAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        createChannel()
+        try {
+            createChannel()
+        } catch (e: Exception) {
+            LogStore.addLog(
+                this, LogStore.PunchType.IN, LogStore.PunchResult.FAILED,
+                "无障碍服务连接异常（已兜底，服务保持开启）：${e.message}"
+            )
+        }
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        val wasBusy = step != Step.IDLE
         instance = null
-        if (step != Step.IDLE) {
-            finishWithResult(LogStore.PunchResult.FAILED, "无障碍服务被系统断开")
+        val dev = "${Build.MODEL} / Android ${Build.VERSION.SDK_INT}"
+        if (wasBusy) {
+            finishWithResult(LogStore.PunchResult.FAILED, "无障碍服务被系统断开 [$dev]")
+        } else {
+            // 空闲态被解绑：记录设备信息，便于判断是系统回收（如 OriginOS 省电策略）还是崩溃
+            LogStore.addLog(
+                this, LogStore.PunchType.IN, LogStore.PunchResult.SKIPPED,
+                "无障碍服务被系统解绑（空闲）[$dev]"
+            )
         }
         return super.onUnbind(intent)
     }
@@ -104,20 +120,28 @@ class DingTalkAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (step == Step.IDLE || step == Step.DONE) return
-        if (event?.packageName?.toString() != PACKAGE_DINGTALK) {
-            // 钉钉启动过程中可能出现其他包名的窗口（如系统启动器），忽略
-            return
+        // 全局兜底：任何未预期异常都拦截，避免系统因服务崩溃而强制关闭无障碍服务
+        try {
+            if (step == Step.IDLE || step == Step.DONE) return
+            if (event?.packageName?.toString() != PACKAGE_DINGTALK) {
+                // 钉钉启动过程中可能出现其他包名的窗口（如系统启动器），忽略
+                return
+            }
+            val root = rootInActiveWindow ?: return
+
+            // 前置状态检查 1：已打卡则跳过，避免重复打卡（WAIT_CONFIRM 除外——点击成功后页面出现"已打卡"属正常成功）
+            if (targetType != null && step != Step.WAIT_CONFIRM && checkAlreadyPunched(root, targetType!!)) return
+
+            // 前置状态检查 2：考勤页面中若处于外勤状态（不在打卡范围），直接放弃，绝不点外勤打卡
+            if ((step == Step.WAIT_ATT || step == Step.WAIT_CONFIRM) && checkOutOfRange(root)) return
+
+            handleUi(root)
+        } catch (e: Exception) {
+            LogStore.addLog(
+                this, targetType ?: LogStore.PunchType.IN, LogStore.PunchResult.FAILED,
+                "无障碍事件异常已被拦截，服务保持开启：${e.message}"
+            )
         }
-        val root = rootInActiveWindow ?: return
-
-        // 前置状态检查 1：已打卡则跳过，避免重复打卡（WAIT_CONFIRM 除外——点击成功后页面出现"已打卡"属正常成功）
-        if (targetType != null && step != Step.WAIT_CONFIRM && checkAlreadyPunched(root, targetType!!)) return
-
-        // 前置状态检查 2：考勤页面中若处于外勤状态（不在打卡范围），直接放弃，绝不点外勤打卡
-        if ((step == Step.WAIT_ATT || step == Step.WAIT_CONFIRM) && checkOutOfRange(root)) return
-
-        handleUi(root)
     }
 
     override fun onInterrupt() {
