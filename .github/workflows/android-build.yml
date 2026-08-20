@@ -1,11 +1,12 @@
 # AutoDingPunch 自动构建工作流
 # 触发方式：
-#   - push / pull request 到 main 分支
+#   - push / pull request 到 main 分支（构建并发布 pre-release，APK 挂在 Release 页）
+#   - 打 tag（如 v1.0.0）构建并发布正式 Release
 #   - 手动触发（Actions 页面点 "Run workflow"），可传版本号参数
 # 产物：
 #   - Debug APK（可直接安装）
-#   - Release APK（默认未签名；配置签名 Secrets 后自动签名）
-# 签名 Secrets（可选，仓库 Settings -> Secrets and variables -> Actions）：
+#   - Release APK（配置签名 Secrets 后自动签名，可直接安装）
+# 签名 Secrets（仓库 Settings -> Secrets and variables -> Actions）：
 #   KEYSTORE_BASE64   - keystore 文件的 base64 内容
 #   KEYSTORE_PASSWORD - keystore 密码
 #   KEY_ALIAS         - 别名
@@ -15,6 +16,8 @@ name: Build APK
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -28,7 +31,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout 代码
@@ -91,3 +94,60 @@ jobs:
           echo "- Debug APK：app/build/outputs/apk/debug/" >> $GITHUB_STEP_SUMMARY
           echo "- Release APK：app/build/outputs/apk/release/" >> $GITHUB_STEP_SUMMARY
           echo "- 在 Actions 运行页面的 Artifacts 区域下载" >> $GITHUB_STEP_SUMMARY
+
+  # 发布到 GitHub Release（push main 或打 tag 时）
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # PR 构建不发布
+    if: ${{ github.event_name != 'pull_request' }}
+
+    steps:
+      - name: 下载 Debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-debug
+          path: apk
+
+      - name: 下载 Release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release
+          path: apk
+
+      # 决定版本号与 Release 名称：tag 触发用 tag 名；push main 用递增的 build 号；手动触发用输入的版本号
+      - name: 计算版本信息
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}"
+            echo "name=${{ github.ref_name }}"
+            echo "prerelease=false"
+          elif [ -n "${{ github.event.inputs.version_name }}" ]; then
+            echo "tag=build-${{ github.run_number }}"
+            echo "name=${{ github.event.inputs.version_name }}"
+            echo "prerelease=false"
+          else
+            echo "tag=build-${{ github.run_number }}"
+            echo "name=AutoDingPunch nightly build #${{ github.run_number }}"
+            echo "prerelease=true"
+          fi
+
+      - name: 创建/更新 GitHub Release 并上传 APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.name }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: false
+          body: |
+            ## 自动构建产物
+
+            - **app-debug.apk** — 调试包（未签名，直接安装用于测试）
+            - **app-release.apk** — 正式包（配置签名后为已签名可安装）
+
+            > 由 GitHub Actions 自动构建发布。下载后安装前需允许"安装未知来源应用"。
+          files: |
+            apk/*.apk

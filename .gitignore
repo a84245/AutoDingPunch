@@ -10,3 +10,6 @@
 .cxx
 /keystore.jks
 *.jks
+*.keystore
+/keystore-password.txt
+/keystore-base64.txt
