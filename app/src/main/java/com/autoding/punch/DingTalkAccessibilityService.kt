@@ -80,13 +80,18 @@ class DingTalkAccessibilityService : AccessibilityService() {
             }
             handleUi(root)
         }
+        schedulePoll()
+    }
+
+    /** 调度下一次轮询（抽成方法，避免在 pollRunnable 初始化 lambda 内自引用该属性） */
+    private fun schedulePoll() {
         handler.postDelayed(pollRunnable, 2000)
     }
 
     private fun startPolling() {
         stopPolling()
         polling = true
-        handler.postDelayed(pollRunnable, 2000)
+        schedulePoll()
     }
 
     private fun stopPolling() {
