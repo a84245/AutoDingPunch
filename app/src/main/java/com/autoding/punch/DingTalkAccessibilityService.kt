@@ -47,7 +47,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
     }
 
     private enum class Step {
-        IDLE, LAUNCH, WAIT_MAIN, WAIT_WORK, WAIT_ATT, WAIT_CONFIRM, DONE
+        IDLE, LAUNCH, WAIT_MAIN, WAIT_WORK, WAIT_ATT, WAIT_CONFIRM, REFRESHING, DONE
     }
 
     private var step = Step.IDLE
@@ -55,6 +55,44 @@ class DingTalkAccessibilityService : AccessibilityService() {
     private var startTime = 0L
     private var attempt = 0
     private var lastActionText = ""
+    private var refreshAttempts = 0          // 外勤误判后的定位刷新重试次数
+    private val MAX_REFRESH = 4             // 最多自动刷新重试次数
+    private var polling = false             // 考勤页轮询（补偿钉钉静态无事件的情况）
+
+    /** 考勤页轮询：钉钉有时定位刷新后不触发无障碍事件，靠轮询兜底重新评估外勤/打卡按钮 */
+    private val pollRunnable = Runnable {
+        if (step != Step.WAIT_ATT && step != Step.WAIT_CONFIRM) {
+            stopPolling()
+            return@Runnable
+        }
+        val root = rootInActiveWindow
+        if (root != null) {
+            // 已打卡则跳过，避免重复打卡
+            if (targetType != null && step != Step.WAIT_CONFIRM && checkAlreadyPunched(root, targetType!!)) return@Runnable
+            // 外勤处理：WAIT_ATT 自动刷新重试；WAIT_CONFIRM 直接放弃（不确认外勤）
+            if (step == Step.WAIT_ATT && checkOutOfRange(root)) {
+                handleOutOfRange()
+                return@Runnable
+            }
+            if (step == Step.WAIT_CONFIRM && checkOutOfRange(root)) {
+                finishWithResult(LogStore.PunchResult.FAILED, "弹出外勤打卡确认框，已放弃（不执行外勤打卡）")
+                return@Runnable
+            }
+            handleUi(root)
+        }
+        handler.postDelayed(pollRunnable, 2000)
+    }
+
+    private fun startPolling() {
+        stopPolling()
+        polling = true
+        handler.postDelayed(pollRunnable, 2000)
+    }
+
+    private fun stopPolling() {
+        polling = false
+        handler.removeCallbacks(pollRunnable)
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private val timeoutRunnable = Runnable {
@@ -135,8 +173,17 @@ class DingTalkAccessibilityService : AccessibilityService() {
             // 前置状态检查 1：已打卡则跳过，避免重复打卡（WAIT_CONFIRM 除外——点击成功后页面出现"已打卡"属正常成功）
             if (targetType != null && step != Step.WAIT_CONFIRM && checkAlreadyPunched(root, targetType!!)) return
 
-            // 前置状态检查 2：考勤页面中若处于外勤状态（不在打卡范围），直接放弃，绝不点外勤打卡
-            if ((step == Step.WAIT_ATT || step == Step.WAIT_CONFIRM) && checkOutOfRange(root)) return
+            // 前置状态检查 2：考勤页面中若处于外勤状态（不在打卡范围）
+            // - WAIT_ATT：定位可能不准，自动退出考勤页刷新定位后重试
+            // - WAIT_CONFIRM：已弹出外勤确认框，绝不确认，直接放弃
+            if (step == Step.WAIT_ATT && checkOutOfRange(root)) {
+                handleOutOfRange()
+                return
+            }
+            if (step == Step.WAIT_CONFIRM && checkOutOfRange(root)) {
+                finishWithResult(LogStore.PunchResult.FAILED, "弹出外勤打卡确认框，已放弃（不执行外勤打卡）")
+                return
+            }
 
             handleUi(root)
         } catch (e: Exception) {
@@ -160,6 +207,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
         }
         targetType = type
         attempt++
+        refreshAttempts = 0
         lastActionText = if (type == LogStore.PunchType.IN) "上班打卡" else "下班打卡"
         step = Step.LAUNCH
         startTime = System.currentTimeMillis()
@@ -174,7 +222,8 @@ class DingTalkAccessibilityService : AccessibilityService() {
         LogStore.addLog(this, type, LogStore.PunchResult.SKIPPED, "开始自动${lastActionText}")
 
         launchDingTalk()
-        handler.postDelayed(timeoutRunnable, 60000)
+        // 留足外勤误判自动刷新重试的时间（最多 4 次，每次约 6s）
+        handler.postDelayed(timeoutRunnable, 90000)
     }
 
     private fun launchDingTalk() {
@@ -216,6 +265,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
             // 3. 首页找"考勤打卡"快捷入口（部分版本首页直接有）
             if (clickNodeByText(root, "考勤打卡")) {
                 step = Step.WAIT_ATT
+                startPolling()
             }
         }
     }
@@ -227,6 +277,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
         // 2. 找"考勤打卡"入口
         if (clickNodeByText(root, "考勤打卡")) {
             step = Step.WAIT_ATT
+            startPolling()
             notify("自动${lastActionText}", "已进入考勤页面…")
             return
         }
@@ -295,17 +346,46 @@ class DingTalkAccessibilityService : AccessibilityService() {
 
     /**
      * 检测是否处于外勤状态（不在打卡范围）。
-     * 命中时放弃自动打卡 —— 本工具只执行正常打卡，绝不触发外勤打卡。
+     * 仅返回是否命中，不做结束处理 —— 命中后由调用方决定「自动刷新重试」还是「放弃」。
+     * 本工具只执行正常打卡，绝不触发外勤打卡。
      */
     private fun checkOutOfRange(root: AccessibilityNodeInfo): Boolean {
         val markers = listOf("外勤打卡", "不在打卡范围", "打卡范围外")
         for (m in markers) {
             val node = findNodeByText(root, m, clickableOnly = false, exact = false) ?: continue
             node.recycle()
-            finishWithResult(LogStore.PunchResult.SKIPPED, "当前不在打卡范围，已放弃自动打卡")
             return true
         }
         return false
+    }
+
+    /**
+     * 检测到外勤状态：定位可能不准，自动退出考勤页并重新进入以刷新钉钉定位，最多重试 MAX_REFRESH 次。
+     * 超过次数仍显示外勤，则判定为确不在打卡范围并放弃（绝不执行外勤打卡）。
+     */
+    private fun handleOutOfRange() {
+        refreshAttempts++
+        if (refreshAttempts <= MAX_REFRESH) {
+            LogStore.addLog(
+                this, targetType ?: LogStore.PunchType.IN, LogStore.PunchResult.SKIPPED,
+                "检测到外勤状态（定位可能不准），自动刷新定位（第 $refreshAttempts/$MAX_REFRESH 次）"
+            )
+            notify("定位可能不准", "自动退出考勤页刷新定位（第 $refreshAttempts/$MAX_REFRESH 次）…")
+            stopPolling()
+            step = Step.REFRESHING
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            handler.postDelayed({
+                if (step == Step.REFRESHING) {
+                    step = Step.WAIT_MAIN
+                    launchDingTalk()
+                }
+            }, 1500)
+        } else {
+            finishWithResult(
+                LogStore.PunchResult.SKIPPED,
+                "多次刷新定位后仍显示外勤，已放弃（可能确不在打卡范围）"
+            )
+        }
     }
 
     /** 尝试点击打卡按钮；返回是否已点击 */
@@ -498,6 +578,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
     // ============ 结束与通知 ============
 
     private fun finishWithResult(result: LogStore.PunchResult, message: String) {
+        stopPolling()
         val type = targetType ?: LogStore.PunchType.IN
         LogStore.addLog(this, type, result, message)
         notify("自动${lastActionText} ${result.label}", message, success = result != LogStore.PunchResult.FAILED)
@@ -507,6 +588,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
     }
 
     private fun reset() {
+        stopPolling()
         handler.removeCallbacks(timeoutRunnable)
         step = Step.IDLE
         targetType = null
