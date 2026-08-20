@@ -50,7 +50,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val notifyPermLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // 通知请求完后，接着自动请求定位
+            autoRequestLocationIfNeeded()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,14 +63,38 @@ class MainActivity : AppCompatActivity() {
         setupViews()
         refreshAll()
 
-        // Android 13+ 需要通知权限才能显示打卡结果通知；只请求一次，拒绝后不再重复弹框
+        // 启动即自动请求所需授权（通知 + 定位），减少手动操作
+        autoRequestPermissionsOnStart()
+    }
+
+    /** 启动自动获取授权：先请求通知（仅一次），再请求定位；均已授权则跳过 */
+    private fun autoRequestPermissionsOnStart() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                    PackageManager.PERMISSION_GRANTED
-            if (!granted && !ConfigStore.hasAskedNotifyPermission(this)) {
+            val notifyGranted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!notifyGranted && !ConfigStore.hasAskedNotifyPermission(this)) {
                 ConfigStore.setNotifyPermissionAsked(this)
                 notifyPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return // 通知授权结果回调里继续请求定位
             }
+        }
+        autoRequestLocationIfNeeded()
+    }
+
+    /** 定位未授权时自动弹窗请求（前台定位；后台定位在 Android 11+ 上由系统或设置页处理） */
+    private fun autoRequestLocationIfNeeded() {
+        if (!checkLocationPermission()) {
+            locationPermLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            !checkBackgroundLocationPermission()
+        ) {
+            locationPermLauncher.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
         }
     }
 

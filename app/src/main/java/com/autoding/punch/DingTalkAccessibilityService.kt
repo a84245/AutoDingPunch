@@ -35,6 +35,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
         const val PACKAGE_DINGTALK = "com.alibaba.android.rimet"
         private const val CHANNEL_ID = "autoding_notify"
         private const val NOTIFY_ID = 9527
+        private const val FOREGROUND_ID = 1001
 
         @Volatile
         var instance: DingTalkAccessibilityService? = null
@@ -75,6 +76,8 @@ class DingTalkAccessibilityService : AccessibilityService() {
                 "无障碍服务连接异常（已兜底，服务保持开启）：${e.message}"
             )
         }
+        // 提升为前台服务，常驻通知以提高在激进省电策略（如 OriginOS）下的存活率
+        startForegroundIfNeeded()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -519,6 +522,25 @@ class DingTalkAccessibilityService : AccessibilityService() {
     }
 
     // ============ 通知 ============
+
+    /** 将无障碍服务提升为前台服务并常驻通知，防止被系统回收 */
+    private fun startForegroundIfNeeded() {
+        try {
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle("自动打卡辅助服务运行中")
+                .setContentText("常驻前台，防止被系统回收")
+                .setOngoing(true)
+                .setShowWhen(false)
+                .build()
+            startForeground(FOREGROUND_ID, notification)
+        } catch (e: Exception) {
+            LogStore.addLog(
+                this, LogStore.PunchType.IN, LogStore.PunchResult.SKIPPED,
+                "前台化失败，服务仍运行：${e.message}"
+            )
+        }
+    }
 
     private fun createChannel() {
         val channel = NotificationChannel(
