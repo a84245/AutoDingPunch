@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 打卡机图标：圆形表盘 + 底部支架 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 m-20,0 a20,20 0 1,1 40,0 a20,20 0 1,1 -40,0" />
+    <path
+        android:fillColor="#1677FF"
+        android:pathData="M54,32 m-16,0 a16,16 0 1,1 32,0 a16,16 0 1,1 -32,0" />
+    <!-- 表盘上的指针 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53,36 L53,44 L58,48 L60,44 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,32 L54,32 L54,36 L48,36 Z" />
+    <!-- 底部支架 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,52 L68,52 L66,62 L42,62 Z" />
+    <path
+        android:fillColor="#D0E4FF"
+        android:pathData="M46,62 L62,62 L60,72 L48,72 Z" />
+</vector>

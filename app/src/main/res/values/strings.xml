@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">自动打卡助手</string>
+    <string name="accessibility_service_label">自动打卡辅助服务</string>
+    <string name="accessibility_service_desc">用于在到达/离开公司时，自动打开钉钉并完成上下班打卡操作。仅在您设置的围栏范围内触发。</string>
+</resources>
