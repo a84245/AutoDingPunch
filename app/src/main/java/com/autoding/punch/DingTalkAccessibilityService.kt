@@ -60,7 +60,7 @@ class DingTalkAccessibilityService : AccessibilityService() {
     private var polling = false             // 考勤页轮询（补偿钉钉静态无事件的情况）
 
     /** 考勤页轮询：钉钉有时定位刷新后不触发无障碍事件，靠轮询兜底重新评估外勤/打卡按钮 */
-    private val pollRunnable = Runnable {
+    private val pollRunnable: Runnable = Runnable {
         if (step != Step.WAIT_ATT && step != Step.WAIT_CONFIRM) {
             stopPolling()
             return@Runnable
