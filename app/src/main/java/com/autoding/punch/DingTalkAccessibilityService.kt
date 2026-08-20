@@ -353,7 +353,11 @@ class DingTalkAccessibilityService : AccessibilityService() {
             return false
         }
 
-        fun dfs(node: AccessibilityNodeInfo) {
+        var scannedNodes = 0
+        fun dfs(node: AccessibilityNodeInfo, depth: Int) {
+            // 深度/总量保护：钉钉复杂页面节点树很深，防止栈溢出或耗时过长
+            if (depth > 80 || scannedNodes > 8000) return
+            scannedNodes++
             if (node.packageName?.toString() != PACKAGE_DINGTALK) return
             val nodeText = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
             if (nodeText.isNotEmpty()) {
@@ -368,10 +372,10 @@ class DingTalkAccessibilityService : AccessibilityService() {
             }
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i) ?: continue
-                dfs(child)
+                dfs(child, depth + 1)
             }
         }
-        dfs(root)
+        dfs(root, 0)
 
         // 优先可点击的节点
         val best = candidates.firstOrNull { it.isClickable } ?: candidates.firstOrNull()

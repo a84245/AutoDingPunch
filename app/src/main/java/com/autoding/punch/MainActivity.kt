@@ -60,11 +60,12 @@ class MainActivity : AppCompatActivity() {
         setupViews()
         refreshAll()
 
-        // Android 13+ 需要通知权限才能显示打卡结果通知
+        // Android 13+ 需要通知权限才能显示打卡结果通知；只请求一次，拒绝后不再重复弹框
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                     PackageManager.PERMISSION_GRANTED
-            if (!granted) {
+            if (!granted && !ConfigStore.hasAskedNotifyPermission(this)) {
+                ConfigStore.setNotifyPermissionAsked(this)
                 notifyPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
@@ -72,7 +73,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        registerReceiver(logReceiver, IntentFilter(LogStore.ACTION_LOG_CHANGED))
+        // Android 14 (targetSdk 34) 要求 registerReceiver 必须显式声明导出性，否则抛 SecurityException 闪退
+        registerReceiver(
+            logReceiver,
+            IntentFilter(LogStore.ACTION_LOG_CHANGED),
+            Context.RECEIVER_NOT_EXPORTED
+        )
         refreshAll()
     }
 
