@@ -19,9 +19,8 @@ object ConfigStore {
     const val KEY_LAST_PUNCH_IN_TS = "last_punch_in_ts"
     const val KEY_LAST_PUNCH_OUT_TS = "last_punch_out_ts"
     const val KEY_LAST_STATE = "last_zone_state" // inside / outside
-    const val KEY_LAST_IN_POS = "last_in_pos"    // 已触发上班打卡的位置
-    const val KEY_LAST_OUT_POS = "last_out_pos"  // 已触发下班打卡的位置
-    const val KEY_DEBUG_DINGTALK = "debug_dingtalk" // 无障碍调试模式
+    const val KEY_LAST_IN_POS = "last_in_pos"    // 已触发上班提醒的位置
+    const val KEY_LAST_OUT_POS = "last_out_pos"  // 已触发下班提醒的位置
     const val KEY_NOTIFY_ASKED = "notify_permission_asked" // 是否已请求过通知权限（避免每次打开都弹）
 
     // ---- 监测时段（省电） ----
@@ -103,14 +102,6 @@ object ConfigStore {
 
     fun setLastOutPos(context: Context, pos: String) {
         prefs(context).edit().putString(KEY_LAST_OUT_POS, pos).apply()
-    }
-
-    // ---- 调试开关 ----
-    fun isDebugDingTalk(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_DEBUG_DINGTALK, false)
-
-    fun setDebugDingTalk(context: Context, debug: Boolean) {
-        prefs(context).edit().putBoolean(KEY_DEBUG_DINGTALK, debug).apply()
     }
 
     // ---- 通知权限请求记录（Android 13+ 只弹一次，避免每次打开都弹授权框） ----

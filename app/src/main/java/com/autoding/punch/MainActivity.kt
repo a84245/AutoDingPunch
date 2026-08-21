@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
                     if (!bg) requestBackgroundLocation()
                 }
             } else {
-                toast("定位权限被拒绝，无法自动打卡")
+                toast("定位权限被拒绝，无法监测位置")
             }
             refreshAll()
         }
@@ -161,9 +161,6 @@ class MainActivity : AppCompatActivity() {
         // ---- 权限 ----
         binding.btnLocPerm.setOnClickListener { requestLocationPermissions() }
         binding.btnBgLocPerm.setOnClickListener { requestBackgroundLocation() }
-        binding.btnAccessibility.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }
         binding.btnBattery.setOnClickListener { requestBatteryExemption() }
 
         // ---- 监测时段（省电） ----
@@ -190,30 +187,29 @@ class MainActivity : AppCompatActivity() {
             refreshWindows()
         }
 
-        // ---- 手动打卡 ----
+        // ---- 提醒测试 / 快捷操作 ----
         binding.btnManualIn.setOnClickListener {
-            checkAccessibilityThen {
-                startService(Intent(this, DingTalkAccessibilityService::class.java).apply {
-                    action = DingTalkAccessibilityService.ACTION_PUNCH_IN
-                })
-                toast("已触发上班打卡")
+            if (!ConfigStore.isMonitorEnabled(this)) {
+                toast("请先开启监测")
+                return@setOnClickListener
             }
+            startService(Intent(this, LocationMonitorService::class.java).apply {
+                action = LocationMonitorService.ACTION_MANUAL_IN
+            })
+            toast("已发送上班提醒通知")
         }
         binding.btnManualOut.setOnClickListener {
-            checkAccessibilityThen {
-                startService(Intent(this, DingTalkAccessibilityService::class.java).apply {
-                    action = DingTalkAccessibilityService.ACTION_PUNCH_OUT
-                })
-                toast("已触发下班打卡")
+            if (!ConfigStore.isMonitorEnabled(this)) {
+                toast("请先开启监测")
+                return@setOnClickListener
             }
+            startService(Intent(this, LocationMonitorService::class.java).apply {
+                action = LocationMonitorService.ACTION_MANUAL_OUT
+            })
+            toast("已发送下班提醒通知")
         }
         binding.btnDebug.setOnClickListener {
-            checkAccessibilityThen {
-                startService(Intent(this, DingTalkAccessibilityService::class.java).apply {
-                    action = DingTalkAccessibilityService.ACTION_TEST
-                })
-                toast("调试模式：正在打开钉钉…")
-            }
+            openDingTalk()
         }
 
         // ---- 日志 ----
@@ -266,15 +262,6 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("去开启") {
                     _, _ -> startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 }
-                .setNegativeButton("取消", null)
-                .show()
-            return
-        }
-        if (!isAccessibilityEnabled()) {
-            AlertDialog.Builder(this)
-                .setTitle("无障碍服务未开启")
-                .setMessage("需要开启「自动打卡辅助服务」才能自动操作钉钉。是否去开启？")
-                .setPositiveButton("去开启") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 .setNegativeButton("取消", null)
                 .show()
             return
@@ -376,31 +363,19 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun isAccessibilityEnabled(): Boolean {
-        val enabled = Settings.Secure.getString(
-            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val expected = "$packageName/${DingTalkAccessibilityService::class.java.name}"
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
-    }
-
     private fun isGpsOn(): Boolean {
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
 
-    /** 无障碍未开启时弹窗引导；已开启则执行动作 */
-    private fun checkAccessibilityThen(action: () -> Unit) {
-        if (isAccessibilityEnabled()) {
-            action()
+    /** 直接打开钉钉 App（用于手动打卡快捷操作） */
+    private fun openDingTalk() {
+        val launch = packageManager.getLaunchIntentForPackage("com.alibaba.android.rimet")
+        if (launch != null) {
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } else {
-            AlertDialog.Builder(this)
-                .setTitle("需要无障碍服务")
-                .setMessage("自动打卡需要「自动打卡辅助服务」来操作钉钉。请在无障碍设置中开启本应用的辅助服务。")
-                .setPositiveButton("去开启") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                .setNegativeButton("取消", null)
-                .show()
+            toast("未检测到钉钉，请先安装")
         }
     }
 
@@ -451,15 +426,10 @@ class MainActivity : AppCompatActivity() {
         } else {
             "2. 允许后台定位（重要）"
         }
-        binding.btnAccessibility.text = if (isAccessibilityEnabled()) {
-            "3. 无障碍服务 ✅ 已开启"
-        } else {
-            "3. 开启无障碍服务"
-        }
         binding.btnBattery.text = if (isIgnoringBatteryOptimizations()) {
-            "4. 电池优化豁免 ✅ 已设置"
+            "3. 电池优化豁免 ✅ 已设置"
         } else {
-            "4. 电池优化豁免（防杀后台）"
+            "3. 电池优化豁免（防杀后台）"
         }
     }
 

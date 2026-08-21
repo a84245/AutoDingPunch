@@ -15,7 +15,6 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
-import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlin.math.atan2
@@ -29,11 +28,11 @@ import java.util.Locale
 /**
  * 位置监测前台服务
  *
- * 持续获取定位 -> 计算与公司的距离 -> 状态机判断进入/离开围栏 -> 触发自动打卡
+ * 持续获取定位 -> 计算与公司的距离 -> 状态机判断进入/离开围栏 -> 发送提醒通知
  *
  * 状态机：UNKNOWN -> (定位成功) -> INSIDE / OUTSIDE
- *         OUTSIDE --进入半径--> INSIDE  (触发上班打卡)
- *         INSIDE  --离开半径*1.3--> OUTSIDE (触发下班打卡，带回滞防止GPS抖动)
+ *         OUTSIDE --进入半径--> INSIDE  (发送上班提醒)
+ *         INSIDE  --离开半径*1.3--> OUTSIDE (发送下班提醒，带回滞防止GPS抖动)
  */
 class LocationMonitorService : Service(), LocationListener {
 
@@ -229,7 +228,7 @@ class LocationMonitorService : Service(), LocationListener {
 
     /** 通知栏显示的监测窗口描述 */
     private fun windowDesc(): String {
-        if (!ConfigStore.isTimeLimitEnabled(this)) return "已到达公司将自动打卡"
+        if (!ConfigStore.isTimeLimitEnabled(this)) return "已到达公司将提醒您打卡"
         val inS = ConfigStore.formatMinutes(ConfigStore.getWindowInStart(this))
         val inE = ConfigStore.formatMinutes(ConfigStore.getWindowInEnd(this))
         val outS = ConfigStore.formatMinutes(ConfigStore.getWindowOutStart(this))
@@ -279,15 +278,10 @@ class LocationMonitorService : Service(), LocationListener {
     override fun onProviderEnabled(provider: String) {}
     override fun onProviderDisabled(provider: String) {}
 
-    // ============ 触发打卡 ============
+    // ============ 触发提醒 ============
 
     private fun triggerPunch(type: LogStore.PunchType, force: Boolean = false) {
-        if (DingTalkAccessibilityService.isRunning) {
-            LogStore.addLog(this, type, LogStore.PunchResult.SKIPPED, "上一个打卡流程未结束，忽略本次触发")
-            return
-        }
-
-        // 冷却时间检查（手动触发不受限）
+        // 冷却时间检查（手动触发不受限，避免反复弹提醒）
         if (!force) {
             val now = System.currentTimeMillis()
             val lastTs = if (type == LogStore.PunchType.IN) lastTriggerInTime else lastTriggerOutTime
@@ -297,15 +291,7 @@ class LocationMonitorService : Service(), LocationListener {
             }
         }
 
-        // 检查无障碍服务是否开启
-        if (!isAccessibilityServiceEnabled()) {
-            val msg = "未开启无障碍服务，无法自动打开钉钉"
-            LogStore.addLog(this, type, LogStore.PunchResult.FAILED, msg)
-            notifyPunchResult("自动${type.label}失败", msg, success = false)
-            return
-        }
-
-        // 记录触发时间
+        // 记录触发时间（防止同一状态反复提醒）
         if (type == LogStore.PunchType.IN) {
             lastTriggerInTime = System.currentTimeMillis()
             ConfigStore.prefs(this).edit().putLong(ConfigStore.KEY_LAST_PUNCH_IN_TS, lastTriggerInTime).apply()
@@ -314,27 +300,15 @@ class LocationMonitorService : Service(), LocationListener {
             ConfigStore.prefs(this).edit().putLong(ConfigStore.KEY_LAST_PUNCH_OUT_TS, lastTriggerOutTime).apply()
         }
 
-        // 启动无障碍服务执行打卡
-        val action = if (type == LogStore.PunchType.IN) {
-            DingTalkAccessibilityService.ACTION_PUNCH_IN
+        // 本应用只做提醒，不自动打卡：发送高优先级通知，点击可直接打开钉钉
+        val title = "记得${type.label}啦"
+        val content = if (type == LogStore.PunchType.IN) {
+            "您已进入公司范围，记得打开钉钉打上班卡～"
         } else {
-            DingTalkAccessibilityService.ACTION_PUNCH_OUT
+            "您已离开公司范围，记得打开钉钉打下班卡～"
         }
-        try {
-            startService(Intent(this, DingTalkAccessibilityService::class.java).apply { this.action = action })
-            LogStore.addLog(this, type, LogStore.PunchResult.SKIPPED, "已触发自动${type.label}（打开钉钉中…）")
-        } catch (e: Exception) {
-            LogStore.addLog(this, type, LogStore.PunchResult.FAILED, "触发失败：${e.message}")
-        }
-    }
-
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val enabled = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val expected = "$packageName/${DingTalkAccessibilityService::class.java.name}"
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+        LogStore.addLog(this, type, LogStore.PunchResult.SUCCESS, content)
+        notifyReminder(title, content)
     }
 
     // ============ 工具 ============
@@ -392,26 +366,52 @@ class LocationMonitorService : Service(), LocationListener {
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setSilent(true)
-            .addAction(0, "立即上班", inIntent)
-            .addAction(0, "立即下班", outIntent)
+            .addAction(0, "提醒上班", inIntent)
+            .addAction(0, "提醒下班", outIntent)
             .addAction(0, "停止", stopIntent)
             .build()
     }
 
-    private fun notifyPunchResult(title: String, content: String, success: Boolean) {
-        val channel = NotificationChannel(
-            "autoding_notify", "打卡结果通知", NotificationManager.IMPORTANCE_HIGH
-        )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        val n = NotificationCompat.Builder(this, "autoding_notify")
+    /** 提醒通知（高优先级）：到/离公司时提醒用户手动去钉钉打卡，点击可直接打开钉钉 */
+    private fun notifyReminder(title: String, content: String) {
+        createReminderChannel()
+        val n = NotificationCompat.Builder(this, "autoding_reminder")
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
             .setContentText(content)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .setContentIntent(openDingTalkPendingIntent())
             .build()
         try {
             androidx.core.app.NotificationManagerCompat.from(this).notify(9527, n)
         } catch (_: Exception) {
         }
+    }
+
+    private fun createReminderChannel() {
+        val channel = NotificationChannel(
+            "autoding_reminder", "考勤提醒", NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "到/离公司时提醒您去钉钉打卡"
+            setShowBadge(true)
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
+
+    /** 点击通知时打开钉钉 App（若已安装）；未安装则打开本应用 */
+    private fun openDingTalkPendingIntent(): PendingIntent {
+        val pi = PendingIntent.getActivity(
+            this, 0,
+            openDingTalkIntent() ?: Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return pi
+    }
+
+    private fun openDingTalkIntent(): Intent? {
+        val launch = packageManager.getLaunchIntentForPackage("com.alibaba.android.rimet")
+        return launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }

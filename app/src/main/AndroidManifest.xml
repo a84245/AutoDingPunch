@@ -16,7 +16,7 @@
     <!-- 通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Android 11+ 包可见性：声明本应用需要查询/启动钉钉，否则 getPackageInfo 查不到（报"找不到钉钉"） -->
+    <!-- Android 11+ 包可见性：声明本应用需要启动钉钉（提醒通知点击可直接打开钉钉 App） -->
     <queries>
         <package android:name="com.alibaba.android.rimet" />
     </queries>
@@ -47,24 +47,6 @@
             android:name=".LocationMonitorService"
             android:exported="false"
             android:foregroundServiceType="location" />
-
-        <!-- 钉钉无障碍服务 -->
-        <service
-            android:name=".DingTalkAccessibilityService"
-            android:exported="true"
-            android:label="@string/accessibility_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:foregroundServiceType="specialUse">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="自动打卡辅助服务常驻前台，防止被系统回收" />
-        </service>
 
         <!-- 开机自启广播接收器 -->
         <receiver

@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="4dp"
-            android:text="自动打卡助手"
+            android:text="考勤提醒助手"
             android:textColor="@color/black"
             android:textSize="24sp"
             android:textStyle="bold" />
@@ -27,7 +27,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:text="到公司自动上班打卡 · 离开公司自动下班打卡"
+            android:text="到公司 / 离开公司自动提醒，手动去钉钉打卡"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
@@ -388,7 +388,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="以下 4 项都开启才能正常工作："
+                    android:text="以下 3 项都开启才能正常工作："
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
@@ -411,21 +411,12 @@
                     android:textSize="14sp" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_accessibility"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="46dp"
-                    android:layout_marginTop="6dp"
-                    android:text="3. 开启无障碍服务"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_battery"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="46dp"
                     android:layout_marginTop="6dp"
-                    android:text="4. 电池优化豁免（防杀后台）"
+                    android:text="3. 电池优化豁免（防杀后台）"
                     android:textSize="14sp" />
 
             </LinearLayout>
@@ -449,10 +440,18 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="手动打卡（测试用）"
+                    android:text="提醒测试与快捷操作"
                     android:textColor="@color/black"
                     android:textSize="16sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="先开启监测，再点下面按钮可立即推送一次提醒通知；「打开钉钉」用于手动打卡"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -465,7 +464,7 @@
                         android:layout_width="0dp"
                         android:layout_height="48dp"
                         android:layout_weight="1"
-                        android:text="立即上班打卡"
+                        android:text="测试上班提醒"
                         android:textSize="14sp"
                         app:backgroundTint="@color/green"
                         app:cornerRadius="24dp" />
@@ -476,7 +475,7 @@
                         android:layout_height="48dp"
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:text="立即下班打卡"
+                        android:text="测试下班提醒"
                         android:textSize="14sp"
                         app:backgroundTint="@color/primary"
                         app:cornerRadius="24dp" />
@@ -488,7 +487,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="40dp"
                     android:layout_marginTop="6dp"
-                    android:text="调试：仅打开钉钉（不点击打卡）"
+                    android:text="打开钉钉 App"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
@@ -550,7 +549,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             android:gravity="center"
-            android:text="⚠️ 请遵守公司考勤制度，自动打卡工具存在被公司制度或钉钉风控识别的风险，使用前请确认合规\n\nv1.0.0"
+            android:text="本工具仅做位置提醒，不自动操作任何应用。请遵守公司考勤制度，按时手动打卡。\n\nv1.0.9"
             android:textColor="@color/text_secondary"
             android:textSize="11sp" />
 
